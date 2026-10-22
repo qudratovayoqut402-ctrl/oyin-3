@@ -1,0 +1,608 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document</title>
+    <link rel="stylesheet" href="./mayin.css">
+</head>
+<body>
+   <div id="game-container">
+    <canvas id="gameCanvas"></canvas>
+
+    <!-- Yuqori Dashboard (Spidometr, Masofa, Tangalar, Nitro) -->
+    <div id="hud">
+      <div class="hud-box">
+        <span class="hud-title">TEZLIK</span>
+        <div class="speed-val"><span id="speedVal">0</span> <small>KM/H</small></div>
+      </div>
+
+      <div class="hud-box nitro-box">
+        <span class="hud-title">NITRO (N₂O)</span>
+        <div class="bar-border">
+          <div id="nitroBar" class="bar-fill"></div>
+        </div>
+      </div>
+
+      <div class="hud-box">
+        <span class="hud-title">TANGALAR</span>
+        <div id="coinVal" class="hud-number gold-glow">0</div>
+      </div>
+
+      <div class="hud-box">
+        <span class="hud-title">MASOFA</span>
+        <div class="hud-number"><span id="distVal">0</span> <small>M</small></div>
+      </div>
+    </div>
+
+    <!-- Mobil Sensorli Boshqaruv (Smartfonlar uchun) -->
+    <div id="mobile-controls">
+      <div class="ctrl-group left-group">
+        <button class="ctrl-btn" id="mLeft">◀</button>
+        <button class="ctrl-btn" id="mRight">▶</button>
+      </div>
+      <div class="ctrl-group right-group">
+        <button class="ctrl-btn brake-btn" id="mBrake">🛑</button>
+        <button class="ctrl-btn nitro-btn" id="mNitro">⚡</button>
+      </div>
+    </div>
+
+    <!-- Boshlash Menyusi -->
+    <div id="startScreen" class="overlay active">
+      <div class="card">
+        <h1 class="logo">CYBER<span>RACER</span></h1>
+        <p class="tagline">Trafikdan qoching, tangalarni yig'ing va nitro bilan uching!</p>
+
+        <div class="guide">
+          <div class="row">
+            <span class="badge">A / D yoki ◀ ▶</span>
+            <span>Rulni burish</span>
+          </div>
+          <div class="row">
+            <span class="badge">W yoki ▲</span>
+            <span>Tezlashish (Gaz)</span>
+          </div>
+          <div class="row">
+            <span class="badge">S yoki ▼</span>
+            <span>Tormoz</span>
+          </div>
+          <div class="row">
+            <span class="badge">Space yoki Shift</span>
+            <span>Nitro (Tezlanish)</span>
+          </div>
+        </div>
+
+        <button id="startBtn" class="glow-button">POYGANI BOSHLASH</button>
+      </div>
+    </div>
+
+    <!-- Game Over (Avariya) Menyusi -->
+    <div id="gameOverScreen" class="overlay hidden">
+      <div class="card">
+        <h2 class="logo danger">AVARIYA!</h2>
+        <div class="stats">
+          <p>Bosib o'tilgan masofa: <span id="finalDist" class="cyan">0 m</span></p>
+          <p>Yig'ilgan tangalar: <span id="finalCoins" class="gold">0</span></p>
+          <p>Umumiy ochko: <span id="finalScore" class="glow">0</span></p>
+        </div>
+        <button id="restartBtn" class="glow-button restart">QAYTA URINISH</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    /* ========================================================
+       CYBER HIGHWAY RACER - MOTOR KODI
+       ======================================================== */
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+
+    const speedVal = document.getElementById('speedVal');
+    const distVal = document.getElementById('distVal');
+    const coinVal = document.getElementById('coinVal');
+    const nitroBar = document.getElementById('nitroBar');
+    const startScreen = document.getElementById('startScreen');
+    const gameOverScreen = document.getElementById('gameOverScreen');
+    const finalDist = document.getElementById('finalDist');
+    const finalCoins = document.getElementById('finalCoins');
+    const finalScore = document.getElementById('finalScore');
+    const startBtn = document.getElementById('startBtn');
+    const restartBtn = document.getElementById('restartBtn');
+
+    let W = 0, H = 0;
+    function resize() {
+      W = canvas.width = window.innerWidth;
+      H = canvas.height = window.innerHeight;
+    }
+    window.addEventListener('resize', resize);
+    resize();
+
+    // ==========================================
+    // Web Audio API Tovush generatori
+    // ==========================================
+    let audioCtx = null;
+    function initAudio() {
+      if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    }
+
+    function soundCoin() {
+      if (!audioCtx) return;
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(980, audioCtx.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(1400, audioCtx.currentTime + 0.12);
+      gain.gain.setValueAtTime(0.18, audioCtx.currentTime);
+      gain.gain.linearRampToValueAtTime(0.01, audioCtx.currentTime + 0.12);
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+      osc.start();
+      osc.stop(audioCtx.currentTime + 0.12);
+    }
+
+    function soundCrash() {
+      if (!audioCtx) return;
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.type = 'sawtooth';
+      osc.frequency.setValueAtTime(120, audioCtx.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(30, audioCtx.currentTime + 0.4);
+      gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
+      gain.gain.linearRampToValueAtTime(0.01, audioCtx.currentTime + 0.4);
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+      osc.start();
+      osc.stop(audioCtx.currentTime + 0.4);
+    }
+
+    // ==========================================
+    // Boshqaruv
+    // ==========================================
+    const keys = { left: false, right: false, up: false, down: false, nitro: false };
+
+    window.addEventListener('keydown', (e) => {
+      if (['ArrowLeft', 'KeyA'].includes(e.code)) keys.left = true;
+      if (['ArrowRight', 'KeyD'].includes(e.code)) keys.right = true;
+      if (['ArrowUp', 'KeyW'].includes(e.code)) keys.up = true;
+      if (['ArrowDown', 'KeyS'].includes(e.code)) keys.down = true;
+      if (['Space', 'ShiftLeft', 'ShiftRight'].includes(e.code)) keys.nitro = true;
+    });
+
+    window.addEventListener('keyup', (e) => {
+      if (['ArrowLeft', 'KeyA'].includes(e.code)) keys.left = false;
+      if (['ArrowRight', 'KeyD'].includes(e.code)) keys.right = false;
+      if (['ArrowUp', 'KeyW'].includes(e.code)) keys.up = false;
+      if (['ArrowDown', 'KeyS'].includes(e.code)) keys.down = false;
+      if (['Space', 'ShiftLeft', 'ShiftRight'].includes(e.code)) keys.nitro = false;
+    });
+
+    const bindTouch = (id, key) => {
+      const el = document.getElementById(id);
+      el.addEventListener('touchstart', (e) => { e.preventDefault(); keys[key] = true; });
+      el.addEventListener('touchend', (e) => { e.preventDefault(); keys[key] = false; });
+      el.addEventListener('mousedown', () => { keys[key] = true; });
+      el.addEventListener('mouseup', () => { keys[key] = false; });
+    };
+    bindTouch('mLeft', 'left');
+    bindTouch('mRight', 'right');
+    bindTouch('mBrake', 'down');
+    bindTouch('mNitro', 'nitro');
+
+    // ==========================================
+    // O'yin O'zgaruvchilari
+    // ==========================================
+    let gameState = 'MENU';
+    let distance = 0;
+    let coinsCollected = 0;
+    let speed = 80;
+    let nitro = 100;
+    let roadOffset = 0;
+    let screenShake = 0;
+
+    const road = {
+      lanes: 4,
+      get width() { return Math.min(W * 0.9, 440); },
+      get left() { return (W - this.width) / 2; },
+      get right() { return (W + this.width) / 2; },
+      get laneWidth() { return this.width / this.lanes; }
+    };
+
+    const player = {
+      x: 0,
+      y: 0,
+      width: 42,
+      height: 74,
+      angle: 0,
+      reset() {
+        this.x = W / 2;
+        this.y = H - 120;
+        this.angle = 0;
+      }
+    };
+
+    let traffic = [];
+    let pickups = [];
+    let particles = [];
+    let lastTrafficSpawn = 0;
+    let lastCoinSpawn = 0;
+
+    function addExplosion(x, y, count = 25) {
+      screenShake = 14;
+      for (let i = 0; i < count; i++) {
+        const ang = Math.random() * Math.PI * 2;
+        const spd = Math.random() * 6 + 2;
+        particles.push({
+          x, y,
+          vx: Math.cos(ang) * spd,
+          vy: Math.sin(ang) * spd,
+          life: 1,
+          decay: Math.random() * 0.03 + 0.02,
+          color: ['#ff0055', '#ff9900', '#ffee00'][Math.floor(Math.random() * 3)]
+        });
+      }
+    }
+
+    function spawnTraffic() {
+      const lane = Math.floor(Math.random() * road.lanes);
+      const laneX = road.left + lane * road.laneWidth + road.laneWidth / 2;
+      const isTruck = Math.random() < 0.25;
+      const colors = ['#e11d48', '#8b5cf6', '#eab308', '#06b6d4'];
+
+      traffic.push({
+        x: laneX,
+        y: -150,
+        width: isTruck ? 46 : 40,
+        height: isTruck ? 110 : 70,
+        speed: Math.random() * 25 + 45,
+        color: colors[Math.floor(Math.random() * colors.length)],
+        isTruck
+      });
+    }
+
+    function spawnPickup() {
+      const lane = Math.floor(Math.random() * road.lanes);
+      const laneX = road.left + lane * road.laneWidth + road.laneWidth / 2;
+      const isNitro = Math.random() < 0.25;
+
+      pickups.push({
+        x: laneX,
+        y: -40,
+        type: isNitro ? 'nitro' : 'coin',
+        radius: isNitro ? 14 : 12,
+        rot: 0
+      });
+    }
+
+    // ==========================================
+    // Yangilanish Sikli (Update)
+    // ==========================================
+    function update(dt) {
+      if (gameState !== 'PLAYING') return;
+
+      // Tezlik va Nitro dinamikasi
+      let isBoosting = false;
+      if (keys.nitro && nitro > 0) {
+        isBoosting = true;
+        speed = Math.min(speed + 1.2, 230);
+        nitro = Math.max(0, nitro - 0.45);
+      } else {
+        if (keys.up) speed = Math.min(speed + 0.6, 160);
+        else if (keys.down) speed = Math.max(speed - 1.5, 40);
+        else speed = speed > 85 ? speed - 0.25 : speed + 0.2;
+
+        nitro = Math.min(100, nitro + 0.08);
+      }
+
+      nitroBar.style.width = nitro + '%';
+      speedVal.innerText = Math.round(speed);
+
+      // Masofa
+      distance += (speed * 0.015);
+      distVal.innerText = Math.floor(distance);
+
+      // Yo'l animatsiyasi siljishi
+      roadOffset = (roadOffset + speed * 0.1) % 40;
+
+      // Boshqaruv (O'ng / Chap)
+      const steerSpeed = (speed / 100) * 4.8;
+      if (keys.left) {
+        player.x -= steerSpeed;
+        player.angle = Math.max(player.angle - 0.03, -0.15);
+      } else if (keys.right) {
+        player.x += steerSpeed;
+        player.angle = Math.min(player.angle + 0.03, 0.15);
+      } else {
+        player.angle *= 0.8;
+      }
+
+      // Kema chetga chiqib ketmasligi
+      player.x = Math.max(road.left + player.width / 2, Math.min(road.right - player.width / 2, player.x));
+      player.y = H - 120;
+
+      // Avtomobillar generatsiyasi
+      const now = performance.now();
+      if (now - lastTrafficSpawn > Math.max(700, 1800 - (speed * 5))) {
+        spawnTraffic();
+        lastTrafficSpawn = now;
+      }
+
+      // Tanga va bonuslar generatsiyasi
+      if (now - lastCoinSpawn > 1200) {
+        spawnPickup();
+        lastCoinSpawn = now;
+      }
+
+      // Trafik harakati va to'qnashuv
+      for (let i = traffic.length - 1; i >= 0; i--) {
+        const car = traffic[i];
+        // Trafik tezligi nisbiy hisoblanadi
+        car.y += (speed - car.speed) * 0.12;
+
+        // Avariyani tekshirish (AABB Collision)
+        if (
+          Math.abs(player.x - car.x) < (player.width / 2 + car.width / 2 - 6) &&
+          Math.abs(player.y - car.y) < (player.height / 2 + car.height / 2 - 8)
+        ) {
+          addExplosion(player.x, player.y, 40);
+          soundCrash();
+          endGame();
+          return;
+        }
+
+        // Ekrandan chiqsa o'chirish
+        if (car.y > H + 160 || car.y < -250) {
+          traffic.splice(i, 1);
+        }
+      }
+
+      // Bonuslar harakati va yig'ish
+      for (let i = pickups.length - 1; i >= 0; i--) {
+        const p = pickups[i];
+        p.y += speed * 0.12;
+        p.rot += 0.05;
+
+        // Masofa
+        if (Math.hypot(player.x - p.x, player.y - p.y) < player.width / 2 + p.radius) {
+          if (p.type === 'coin') {
+            coinsCollected++;
+            coinVal.innerText = coinsCollected;
+            soundCoin();
+          } else {
+            nitro = Math.min(100, nitro + 40);
+            soundCoin();
+          }
+          pickups.splice(i, 1);
+          continue;
+        }
+
+        if (p.y > H + 50) pickups.splice(i, 1);
+      }
+
+      // Zarrachalar yangilanishi
+      for (let i = particles.length - 1; i >= 0; i--) {
+        const pr = particles[i];
+        pr.x += pr.vx;
+        pr.y += pr.vy;
+        pr.life -= pr.decay;
+        if (pr.life <= 0) particles.splice(i, 1);
+      }
+
+      // Nitro zarralari (Dvigatel olovi)
+      if (isBoosting || speed > 130) {
+        particles.push({
+          x: player.x - 12 + (Math.random() * 24),
+          y: player.y + player.height / 2,
+          vx: (Math.random() - 0.5) * 1.5,
+          vy: Math.random() * 5 + 4,
+          life: 0.8,
+          decay: 0.08,
+          color: isBoosting ? '#00f7ff' : '#ffaa00'
+        });
+      }
+
+      if (screenShake > 0) screenShake--;
+    }
+
+    // ==========================================
+    // Chizish (Render)
+    // ==========================================
+    function draw() {
+      ctx.save();
+
+      // Screen Shake effekti
+      if (screenShake > 0) {
+        ctx.translate((Math.random() - 0.5) * 8, (Math.random() - 0.5) * 8);
+      }
+
+      // Foni tozalash
+      ctx.fillStyle = '#030712';
+      ctx.fillRect(0, 0, W, H);
+
+      // Yo'l asfalti
+      ctx.fillStyle = '#0f172a';
+      ctx.fillRect(road.left, 0, road.width, H);
+
+      // Yo'l cheti neon bordyurlari
+      ctx.shadowBlur = 15;
+      ctx.shadowColor = '#00f7ff';
+      ctx.fillStyle = '#00f7ff';
+      ctx.fillRect(road.left - 4, 0, 4, H);
+      ctx.fillRect(road.right, 0, 4, H);
+      ctx.shadowBlur = 0;
+
+      // Yo'l chiziqlari (Oq nuqtali chiziqlar)
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
+      for (let l = 1; l < road.lanes; l++) {
+        const lx = road.left + l * road.laneWidth;
+        for (let y = -40 + roadOffset; y < H; y += 40) {
+          ctx.fillRect(lx - 2, y, 4, 20);
+        }
+      }
+
+      // Tangalar va Nitroni chizish
+      pickups.forEach(p => {
+        ctx.save();
+        ctx.translate(p.x, p.y);
+        ctx.shadowBlur = 10;
+        if (p.type === 'coin') {
+          ctx.shadowColor = '#fbbf24';
+          ctx.fillStyle = '#fbbf24';
+          ctx.beginPath();
+          ctx.arc(0, 0, p.radius, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillStyle = '#d97706';
+          ctx.font = 'bold 12px sans-serif';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText('$', 0, 1);
+        } else {
+          ctx.shadowColor = '#00f7ff';
+          ctx.fillStyle = '#00f7ff';
+          ctx.fillRect(-p.radius, -p.radius, p.radius * 2, p.radius * 2);
+          ctx.fillStyle = '#000';
+          ctx.font = 'bold 9px sans-serif';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText('N₂O', 0, 1);
+        }
+        ctx.restore();
+      });
+
+      // Trafik mashinalarini chizish
+      traffic.forEach(car => {
+        ctx.save();
+        ctx.translate(car.x, car.y);
+
+        // Avtomobil soyasi
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
+        ctx.fillRect(-car.width / 2 + 3, -car.height / 2 + 3, car.width, car.height);
+
+        // Korpusi
+        ctx.fillStyle = car.color;
+        ctx.beginPath();
+        ctx.roundRect(-car.width / 2, -car.height / 2, car.width, car.height, 8);
+        ctx.fill();
+
+        // Oynalari
+        ctx.fillStyle = '#020617';
+        ctx.fillRect(-car.width / 2 + 4, -car.height / 2 + (car.isTruck ? 14 : 12), car.width - 8, car.height * 0.22);
+
+        // Farlar
+        ctx.fillStyle = '#ef4444';
+        ctx.fillRect(-car.width / 2 + 4, car.height / 2 - 4, 8, 4);
+        ctx.fillRect(car.width / 2 - 12, car.height / 2 - 4, 8, 4);
+
+        ctx.restore();
+      });
+
+      // O'yinchi Mashinasi (Player)
+      ctx.save();
+      ctx.translate(player.x, player.y);
+      ctx.rotate(player.angle);
+
+      // Farlar nuri (Headlight glow)
+      ctx.save();
+      const grad = ctx.createLinearGradient(0, -player.height / 2, 0, -player.height / 2 - 120);
+      grad.addColorStop(0, 'rgba(0, 247, 255, 0.4)');
+      grad.addColorStop(1, 'rgba(0, 247, 255, 0)');
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.moveTo(-16, -player.height / 2);
+      ctx.lineTo(-45, -player.height / 2 - 120);
+      ctx.lineTo(45, -player.height / 2 - 120);
+      ctx.lineTo(16, -player.height / 2);
+      ctx.fill();
+      ctx.restore();
+
+      // Korpusi (Futuristik Cyber Mashina)
+      ctx.shadowBlur = 14;
+      ctx.shadowColor = '#00f7ff';
+      ctx.fillStyle = '#0f172a';
+      ctx.strokeStyle = '#00f7ff';
+      ctx.lineWidth = 2;
+
+      ctx.beginPath();
+      ctx.roundRect(-player.width / 2, -player.height / 2, player.width, player.height, 8);
+      ctx.fill();
+      ctx.stroke();
+
+      // Old va orqa oynasi
+      ctx.fillStyle = '#00f7ff';
+      ctx.fillRect(-player.width / 2 + 6, -player.height / 2 + 16, player.width - 12, 12);
+      ctx.fillStyle = '#0369a1';
+      ctx.fillRect(-player.width / 2 + 7, player.height / 2 - 20, player.width - 14, 8);
+
+      // Orqa neon chiroqlar
+      ctx.fillStyle = '#ef4444';
+      ctx.shadowBlur = 10;
+      ctx.shadowColor = '#ef4444';
+      ctx.fillRect(-player.width / 2 + 4, player.height / 2 - 4, 8, 3);
+      ctx.fillRect(player.width / 2 - 12, player.height / 2 - 4, 8, 3);
+
+      ctx.restore();
+
+      // Zarrachalar
+      particles.forEach(pr => {
+        ctx.save();
+        ctx.globalAlpha = pr.life;
+        ctx.fillStyle = pr.color;
+        ctx.shadowBlur = 8;
+        ctx.shadowColor = pr.color;
+        ctx.beginPath();
+        ctx.arc(pr.x, pr.y, 3, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      });
+
+      ctx.restore();
+    }
+
+    // ==========================================
+    // Asosiy Sikl
+    // ==========================================
+    let lastTime = performance.now();
+    function loop(now) {
+      const dt = now - lastTime;
+      lastTime = now;
+
+      update(dt);
+      draw();
+
+      requestAnimationFrame(loop);
+    }
+    requestAnimationFrame(loop);
+
+    // ==========================================
+    // Start & Game Over Logikasi
+    // ==========================================
+    function startGame() {
+      initAudio();
+      distance = 0;
+      coinsCollected = 0;
+      speed = 80;
+      nitro = 100;
+      traffic = [];
+      pickups = [];
+      particles = [];
+      player.reset();
+      coinVal.innerText = '0';
+      distVal.innerText = '0';
+      gameState = 'PLAYING';
+      startScreen.classList.remove('active');
+      startScreen.classList.add('hidden');
+      gameOverScreen.classList.add('hidden');
+    }
+
+    function endGame() {
+      gameState = 'GAMEOVER';
+      finalDist.innerText = Math.floor(distance) + ' m';
+      finalCoins.innerText = coinsCollected;
+      finalScore.innerText = Math.floor(distance * 1.5 + coinsCollected * 250);
+      gameOverScreen.classList.remove('hidden');
+    }
+
+    startBtn.addEventListener('click', startGame);
+    restartBtn.addEventListener('click', startGame);
+  </script>
+</body>
+</html>
